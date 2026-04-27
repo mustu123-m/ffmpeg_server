@@ -2,31 +2,40 @@ import express from "express";
 import multer from "multer";
 import { exec } from "child_process";
 import fs from "fs";
-
 const app = express();
 const upload = multer({ dest: "/tmp" });
 
-app.post("/thumbnail", upload.single("video"), (req, res) => {
-  const videoPath = req.file.path;
-  const outputPath = `${videoPath}.jpg`;
+app.use(express.json());
 
-  const cmd = `ffmpeg -ss 5 -i ${videoPath} -vframes 1 -vf "format=yuvj420p" ${outputPath} -y`;
+app.post("/thumbnail", async (req, res) => {
+  const { videoUrl, timestamp = 5, format = "jpg" } = req.body;
+
+  const videoPath = `/tmp/video-${Date.now()}.mp4`;
+  const outputPath = `${videoPath}.${format}`;
+
+  // Download video
+  const response = await fetch(videoUrl);
+  const buffer = await response.arrayBuffer();
+  fs.writeFileSync(videoPath, Buffer.from(buffer));
+
+  const cmd = `ffmpeg -ss ${timestamp} -i "${videoPath}" -vframes 1 -vf "format=yuvj420p" "${outputPath}" -y`;
 
   exec(cmd, (err) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).send("FFmpeg failed");
-    }
+    if (err) return res.status(500).send("FFmpeg failed");
 
     const img = fs.readFileSync(outputPath);
-    res.setHeader("Content-Type", "image/jpeg");
-    res.send(img);
+    const base64 = img.toString("base64");
 
-    // cleanup
+    res.json({
+      thumbnail: `data:image/jpeg;base64,${base64}`,
+    });
+
     fs.unlinkSync(videoPath);
     fs.unlinkSync(outputPath);
   });
 });
+
+
 
 app.get("/", (req, res) => {
   res.send("FFmpeg server running");
